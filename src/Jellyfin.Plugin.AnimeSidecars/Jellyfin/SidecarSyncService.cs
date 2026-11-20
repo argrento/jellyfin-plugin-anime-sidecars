@@ -7,6 +7,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Providers;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.AnimeSidecars.Jellyfin;
@@ -27,17 +28,20 @@ public sealed record PreviewRow(string Episode, string SourcePath, string Target
 public class SidecarSyncService
 {
     private readonly ILibraryManager _libraryManager;
+    private readonly IProviderManager _providerManager;
     private readonly IFileSystem _fileSystem;
     private readonly ILogger<SidecarSyncService> _logger;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     /// <summary>Initializes a new instance of the <see cref="SidecarSyncService"/> class.</summary>
     /// <param name="libraryManager">Library manager.</param>
+    /// <param name="providerManager">Provider manager.</param>
     /// <param name="fileSystem">File system.</param>
     /// <param name="logger">Logger.</param>
-    public SidecarSyncService(ILibraryManager libraryManager, IFileSystem fileSystem, ILogger<SidecarSyncService> logger)
+    public SidecarSyncService(ILibraryManager libraryManager, IProviderManager providerManager, IFileSystem fileSystem, ILogger<SidecarSyncService> logger)
     {
         _libraryManager = libraryManager;
+        _providerManager = providerManager;
         _fileSystem = fileSystem;
         _logger = logger;
     }
@@ -126,6 +130,12 @@ public class SidecarSyncService
         }
 
         var previous = episode.IndexNumber;
+        if (fix.ReplacesWrongNumber)
+        {
+            // Name, overview, dates and ids were fetched for the wrong number.
+            EpisodeMetadataReset.ClearProviderData(episode);
+        }
+
         episode.IndexNumber = fix.Number;
         episode.IndexNumberEnd = null;
         episode.ParentIndexNumber = season;
@@ -137,6 +147,41 @@ public class SidecarSyncService
             episode.Path,
             previous);
         return fix;
+    }
+
+    /// <summary>
+    /// Names an episode whose number was corrected. Without "replace all metadata" a refresh keeps the
+    /// title embedded in the file (or leaves the name empty), so the provider's name is fetched here.
+    /// </summary>
+    private async Task ApplyNameAsync(Episode episode, CancellationToken cancellationToken)
+    {
+        if (episode.LockedFields.Contains(MetadataField.Name))
+        {
+            return;
+        }
+
+        IEnumerable<RemoteSearchResult> results;
+        try
+        {
+            results = await _providerManager.GetRemoteSearchResults<Episode, EpisodeInfo>(
+                new RemoteSearchQuery<EpisodeInfo> { ItemId = episode.Id, SearchInfo = episode.GetLookupInfo() },
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _logger.LogWarning(e, "Anime Sidecars: provider lookup failed for {Item}", episode.Path);
+            results = Array.Empty<RemoteSearchResult>();
+        }
+
+        var name = EpisodeMetadataReset.ChooseName(
+            results.Select(r => r.Name),
+            episode.Name,
+            _libraryManager.ParseName(Path.GetFileNameWithoutExtension(episode.Path)).Name);
+        if (!string.Equals(name, episode.Name, StringComparison.Ordinal))
+        {
+            episode.Name = name;
+            await episode.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private List<Video> GetVideos(Guid[] rootIds)
@@ -186,6 +231,7 @@ public class SidecarSyncService
                         ? await TryFixEpisodeNumberAsync(video, cancellationToken).ConfigureAwait(false)
                         : null;
                     var numbered = fix is not null;
+                    var corrected = fix is { ReplacesWrongNumber: true };
 
                     var plan = BuildPlan(video, rules, lister);
                     var dir = Path.GetDirectoryName(video.Path);
@@ -219,11 +265,18 @@ public class SidecarSyncService
                             new MetadataRefreshOptions(new DirectoryService(_fileSystem))
                             {
                                 MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
-                                ImageRefreshMode = numbered ? MetadataRefreshMode.Default : MetadataRefreshMode.ValidationOnly,
-                                ReplaceAllMetadata = fix is { ReplacesWrongNumber: false },
-                                ReplaceAllImages = false,
+                                ImageRefreshMode = !numbered
+                                    ? MetadataRefreshMode.ValidationOnly
+                                    : corrected ? MetadataRefreshMode.FullRefresh : MetadataRefreshMode.Default,
+                                ReplaceAllMetadata = numbered && !corrected,
+                                ReplaceAllImages = corrected,
                             },
                             cancellationToken).ConfigureAwait(false);
+
+                        if (corrected && video is Episode correctedEpisode)
+                        {
+                            await ApplyNameAsync(correctedEpisode, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
                 catch (Exception e) when (e is not OperationCanceledException)
