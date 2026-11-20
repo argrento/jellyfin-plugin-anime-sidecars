@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "guid": "5f2c1d7e-8a3b-4c9e-9b61-2e7d4a0c3f18",
+    "name": "Anime Sidecars",
+    "description": "Links subtitles and audio from anime release subfolders (e.g. 'RUS Subs [Group]') as named external tracks, hides service folders so they stop showing up as seasons, and fills missing episode numbers.",
+    "overview": "External tracks from anime release subfolders",
+    "owner": "argrento",
+    "category": "Metadata",
+    "versions": [
+      {
+        "version": "1.1.0.0",
+        "changelog": "See https://github.com/argrento/jellyfin-plugin-anime-sidecars/releases/tag/v1.1.0",
+        "targetAbi": "10.11.8.0",
+        "sourceUrl": "https://github.com/argrento/jellyfin-plugin-anime-sidecars/releases/download/v1.1.0/anime-sidecars_1.1.0.0.zip",
+        "checksum": "8cb15b8809a444cf5b276f5172ff7a16",
+        "timestamp": "2026-11-20T15:17:27Z"
+      }
+    ]
+  }
+]
