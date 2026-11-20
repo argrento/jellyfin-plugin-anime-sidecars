@@ -1,0 +1,57 @@
+name: Release
+
+# Push a tag like v1.1.0 to build the plugin, publish a GitHub release
+# and add the version to manifest.json (the Jellyfin plugin repository).
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Test
+        run: dotnet test -c Release
+
+      - name: Version
+        id: v
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}.0" >> "$GITHUB_OUTPUT"
+
+      - name: Package
+        id: pkg
+        run: |
+          git checkout "${{ steps.v.outputs.tag }}"
+          zip="$(scripts/package.sh "${{ steps.v.outputs.version }}")"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$zip")" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ steps.v.outputs.tag }}" "${{ steps.pkg.outputs.zip }}" --title "${{ steps.v.outputs.tag }}" --generate-notes
+
+      - name: Update manifest.json on main
+        run: |
+          git checkout main
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.v.outputs.tag }}/${{ steps.pkg.outputs.name }}"
+          python3 -I scripts/update-manifest.py manifest.json "${{ steps.v.outputs.version }}" "${{ steps.pkg.outputs.zip }}" "$url" "See https://github.com/${GITHUB_REPOSITORY}/releases/tag/${{ steps.v.outputs.tag }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "chore: add ${{ steps.v.outputs.tag }} to plugin manifest"
+          git push origin main

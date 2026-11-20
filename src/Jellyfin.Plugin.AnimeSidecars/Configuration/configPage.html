@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Anime Sidecars</title>
+</head>
+<body>
+<div id="AnimeSidecarsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <h2 class="sectionTitle">Anime Sidecars</h2>
+            <p>Подключает субтитры и звук из подпапок раздачи (например <code>RUS Subs [Crunchyroll]</code>) как внешние дорожки и прячет служебные папки. В папки с медиа ничего не пишет.</p>
+
+            <form id="AnimeSidecarsConfigForm">
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="IncludeAudio" type="checkbox" is="emby-checkbox" />
+                        <span>Подключать внешний звук (.mka и т.п.)</span>
+                    </label>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input id="FixEpisodeNumbers" type="checkbox" is="emby-checkbox" />
+                        <span>Определять номер серии из имён вида «Название 01 [тег]» и «(01 сер.)»</span>
+                    </label>
+                </div>
+
+                <div class="selectContainer">
+                    <label class="selectLabel" for="LinkMode">Как класть файлы</label>
+                    <select is="emby-select" id="LinkMode" class="emby-select-withcolor emby-select">
+                        <option value="Symlink">Символическая ссылка (не занимает место)</option>
+                        <option value="Copy">Копия</option>
+                    </select>
+                </div>
+
+                <h3>Библиотеки</h3>
+                <div class="fieldDescription">Ничего не отмечено — обрабатываются все библиотеки.</div>
+                <div id="Libraries"></div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="SubtitlePriority">Приоритет групп субтитров (по строке; первая найденная — по умолчанию)</label>
+                    <textarea id="SubtitlePriority" class="emby-textarea" rows="4" style="width:100%"></textarea>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel" for="IgnoreFolderPatterns">Скрывать папки (шаблоны, по строке; * и ?)</label>
+                    <textarea id="IgnoreFolderPatterns" class="emby-textarea" rows="6" style="width:100%"></textarea>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel" for="LanguageTokens">Языки (по строке: <code>RUS,RU,RUSSIAN=ru</code>)</label>
+                    <textarea id="LanguageTokens" class="emby-textarea" rows="4" style="width:100%"></textarea>
+                </div>
+                <div class="inputContainer">
+                    <label class="inputLabel" for="SignsWords">Папки «надписей» (forced), по строке</label>
+                    <textarea id="SignsWords" class="emby-textarea" rows="3" style="width:100%"></textarea>
+                </div>
+
+                <button is="emby-button" type="submit" class="raised button-submit block emby-button"><span>Сохранить</span></button>
+            </form>
+
+            <h3 style="margin-top:2em">Предпросмотр</h3>
+            <div class="selectContainer">
+                <label class="selectLabel" for="SeriesSelect">Сериал</label>
+                <select is="emby-select" id="SeriesSelect" class="emby-select-withcolor emby-select"></select>
+            </div>
+            <button is="emby-button" type="button" id="PreviewButton" class="raised emby-button"><span>Предпросмотр</span></button>
+            <button is="emby-button" type="button" id="SyncButton" class="raised emby-button"><span>Синхронизировать сериал</span></button>
+            <div id="PreviewStatus" class="fieldDescription"></div>
+            <div style="overflow-x:auto">
+                <table id="PreviewTable" style="width:100%;border-collapse:collapse;margin-top:1em;font-size:90%">
+                    <thead><tr>
+                        <th style="text-align:left">Серия</th><th style="text-align:left">Файл</th><th>Тип</th>
+                        <th style="text-align:left">Название</th><th>Язык</th><th>Флаги</th><th>Статус</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = '5f2c1d7e-8a3b-4c9e-9b61-2e7d4a0c3f18';
+            var page = document.querySelector('#AnimeSidecarsConfigPage');
+
+            function lines(id) {
+                return page.querySelector('#' + id).value.split('\n').map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+            }
+
+            function setLines(id, values) {
+                page.querySelector('#' + id).value = (values || []).join('\n');
+            }
+
+            function cell(row, text, center) {
+                var td = document.createElement('td');
+                td.textContent = text == null ? '' : text;
+                td.style.padding = '2px 6px';
+                td.style.borderTop = '1px solid rgba(128,128,128,.3)';
+                if (center) { td.style.textAlign = 'center'; }
+                row.appendChild(td);
+            }
+
+            function loadLibraries(selected) {
+                return ApiClient.getVirtualFolders().then(function (folders) {
+                    var box = page.querySelector('#Libraries');
+                    box.innerHTML = '';
+                    folders.forEach(function (f) {
+                        var label = document.createElement('label');
+                        label.className = 'emby-checkbox-label';
+                        label.style.display = 'block';
+                        var input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.setAttribute('is', 'emby-checkbox');
+                        input.className = 'libraryCheckbox';
+                        input.dataset.id = f.ItemId;
+                        input.checked = selected.indexOf(f.ItemId) !== -1 || selected.indexOf(f.ItemId.replace(/-/g, '')) !== -1;
+                        var span = document.createElement('span');
+                        span.textContent = f.Name;
+                        label.appendChild(input);
+                        label.appendChild(span);
+                        box.appendChild(label);
+                    });
+                });
+            }
+
+            function loadSeries() {
+                return ApiClient.getItems(ApiClient.getCurrentUserId(), { IncludeItemTypes: 'Series', Recursive: true, SortBy: 'SortName' }).then(function (result) {
+                    var select = page.querySelector('#SeriesSelect');
+                    select.innerHTML = '';
+                    result.Items.forEach(function (s) {
+                        var o = document.createElement('option');
+                        o.value = s.Id;
+                        o.textContent = s.Name;
+                        select.appendChild(o);
+                    });
+                });
+            }
+
+            function preview() {
+                var id = page.querySelector('#SeriesSelect').value;
+                if (!id) { return Promise.resolve(); }
+                page.querySelector('#PreviewStatus').textContent = 'Загрузка…';
+                return ApiClient.getJSON(ApiClient.getUrl('AnimeSidecars/Preview', { seriesId: id })).then(function (rows) {
+                    var body = page.querySelector('#PreviewTable tbody');
+                    body.innerHTML = '';
+                    rows.forEach(function (r) {
+                        var tr = document.createElement('tr');
+                        var flags = [];
+                        if (r.IsDefault) { flags.push('default'); }
+                        if (r.Forced) { flags.push('forced'); }
+                        cell(tr, r.Episode);
+                        cell(tr, r.SourcePath.split('/').slice(-2).join('/'));
+                        cell(tr, r.Kind === 'Audio' ? 'звук' : 'сабы', true);
+                        cell(tr, r.Title);
+                        cell(tr, r.Language, true);
+                        cell(tr, flags.join(', '), true);
+                        cell(tr, r.Status === 'linked' ? 'подключено' : 'ожидает', true);
+                        body.appendChild(tr);
+                    });
+                    page.querySelector('#PreviewStatus').textContent = rows.length ? ('Найдено файлов: ' + rows.length) : 'Ничего не найдено';
+                }, function () {
+                    page.querySelector('#PreviewStatus').textContent = 'Ошибка запроса';
+                });
+            }
+
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    page.querySelector('#IncludeAudio').checked = !!config.IncludeAudio;
+                    page.querySelector('#FixEpisodeNumbers').checked = config.FixEpisodeNumbers !== false;
+                    page.querySelector('#LinkMode').value = config.LinkMode || 'Symlink';
+                    setLines('SubtitlePriority', config.SubtitlePriority);
+                    setLines('IgnoreFolderPatterns', config.IgnoreFolderPatterns);
+                    setLines('LanguageTokens', config.LanguageTokens);
+                    setLines('SignsWords', config.SignsWords);
+                    return Promise.all([loadLibraries(config.LibraryIds || []), loadSeries()]);
+                }).finally(function () {
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            page.querySelector('#AnimeSidecarsConfigForm').addEventListener('submit', function (e) {
+                e.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    config.IncludeAudio = page.querySelector('#IncludeAudio').checked;
+                    config.FixEpisodeNumbers = page.querySelector('#FixEpisodeNumbers').checked;
+                    config.LinkMode = page.querySelector('#LinkMode').value;
+                    config.SubtitlePriority = lines('SubtitlePriority');
+                    config.IgnoreFolderPatterns = lines('IgnoreFolderPatterns');
+                    config.LanguageTokens = lines('LanguageTokens');
+                    config.SignsWords = lines('SignsWords');
+                    config.LibraryIds = Array.prototype.map.call(page.querySelectorAll('.libraryCheckbox:checked'), function (c) { return c.dataset.id; });
+                    return ApiClient.updatePluginConfiguration(pluginId, config);
+                }).then(function (result) {
+                    Dashboard.processPluginConfigurationUpdateResult(result);
+                });
+                return false;
+            });
+
+            page.querySelector('#PreviewButton').addEventListener('click', preview);
+
+            page.querySelector('#SyncButton').addEventListener('click', function () {
+                var id = page.querySelector('#SeriesSelect').value;
+                if (!id) { return; }
+                page.querySelector('#PreviewStatus').textContent = 'Синхронизация…';
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('AnimeSidecars/Sync', { seriesId: id }), dataType: 'json' }).then(function (r) {
+                    page.querySelector('#PreviewStatus').textContent = 'Обновлено серий: ' + (r && r.changed != null ? r.changed : '?');
+                    return preview();
+                }, function () {
+                    page.querySelector('#PreviewStatus').textContent = 'Ошибка синхронизации';
+                });
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
