@@ -104,17 +104,17 @@ public class SidecarSyncService
         return SidecarNamer.Plan(Path.GetFileNameWithoutExtension(video.Path), candidates, rules);
     }
 
-    private async Task<bool> TryFillEpisodeNumberAsync(Video video, CancellationToken cancellationToken)
+    private async Task<EpisodeNumberFix?> TryFixEpisodeNumberAsync(Video video, CancellationToken cancellationToken)
     {
-        if (video is not Episode episode || episode.IndexNumber.HasValue || episode.IsLocked)
+        if (video is not Episode episode || episode.IsLocked)
         {
-            return false;
+            return null;
         }
 
-        var number = EpisodeNumberFallback.TryParse(Path.GetFileNameWithoutExtension(episode.Path));
-        if (number is null)
+        var fix = EpisodeNumberFallback.Plan(episode.IndexNumber, Path.GetFileNameWithoutExtension(episode.Path));
+        if (fix is null)
         {
-            return false;
+            return null;
         }
 
         var season = EpisodeNumberFallback.ResolveSeason(
@@ -122,15 +122,21 @@ public class SidecarSyncService
             LibraryPaths.IsDirectlyIn(episode.Path, episode.Series?.Path));
         if (season is null)
         {
-            return false;
+            return null;
         }
 
-        episode.IndexNumber = number;
+        var previous = episode.IndexNumber;
+        episode.IndexNumber = fix.Number;
+        episode.IndexNumberEnd = null;
         episode.ParentIndexNumber = season;
 
         await episode.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("Anime Sidecars: episode number {Number} set for {Item}", number, episode.Path);
-        return true;
+        _logger.LogInformation(
+            "Anime Sidecars: episode number {Number} set for {Item} (was {Previous})",
+            fix.Number,
+            episode.Path,
+            previous);
+        return fix;
     }
 
     private List<Video> GetVideos(Guid[] rootIds)
@@ -176,8 +182,10 @@ public class SidecarSyncService
                 var video = videos[i];
                 try
                 {
-                    var numbered = config.FixEpisodeNumbers
-                        && await TryFillEpisodeNumberAsync(video, cancellationToken).ConfigureAwait(false);
+                    var fix = config.FixEpisodeNumbers
+                        ? await TryFixEpisodeNumberAsync(video, cancellationToken).ConfigureAwait(false)
+                        : null;
+                    var numbered = fix is not null;
 
                     var plan = BuildPlan(video, rules, lister);
                     var dir = Path.GetDirectoryName(video.Path);
@@ -205,12 +213,14 @@ public class SidecarSyncService
                         changed++;
 
                         // A newly numbered episode only has its file name as metadata: replace it with provider data.
+                        // Not when a wrong number was corrected: a "replace all" refresh makes Jellyfin re-parse
+                        // the path and bring the wrong number back; providers then only fill empty fields.
                         await video.RefreshMetadata(
                             new MetadataRefreshOptions(new DirectoryService(_fileSystem))
                             {
                                 MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
                                 ImageRefreshMode = numbered ? MetadataRefreshMode.Default : MetadataRefreshMode.ValidationOnly,
-                                ReplaceAllMetadata = numbered,
+                                ReplaceAllMetadata = fix is { ReplacesWrongNumber: false },
                                 ReplaceAllImages = false,
                             },
                             cancellationToken).ConfigureAwait(false);

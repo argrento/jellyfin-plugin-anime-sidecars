@@ -16,6 +16,8 @@ public class EpisodeNumberFallbackTests
     [InlineData("Ликвидация (01 сер.) - web-dl1080p", 1)]
     [InlineData("Мастер и Маргарита (10 сер.) - web-dl1080p", 10)]
     [InlineData("01 серия_Апостол_rip by_Aleksan55", 1)]
+    [InlineData("[DBD-Raws] Bleach 001 TV JAP 1080p BDRip HEVC 10bit AAC", 1)]
+    [InlineData("[DBD-Raws] Bleach 167 TV JAP 1080p BDRip HEVC 10bit AAC", 167)]
     public void Parses_Number(string name, int expected) => Assert.Equal(expected, EpisodeNumberFallback.TryParse(name));
 
     [Theory]
@@ -24,6 +26,7 @@ public class EpisodeNumberFallbackTests
     [InlineData("Movie 2019 [BDRip]")]
     [InlineData("Some Show [BDRemux]")]
     [InlineData("Show 0 [x]")]
+    [InlineData("Show 2 Part 3 Extra")] // several bare numbers, none trailing: ambiguous
     public void Returns_Null_When_Unsure(string name) => Assert.Null(EpisodeNumberFallback.TryParse(name));
 
     [Theory]
@@ -40,6 +43,44 @@ public class EpisodeNumberFallbackTests
         // and would overwrite the specials with the main season's episodes.
         Assert.Null(EpisodeNumberFallback.ResolveSeason(null, directlyInSeriesFolder: false));
     }
+
+    [Theory]
+    [InlineData("[DBD-Raws] Bleach 001 TV JAP 1080p BDRip HEVC 10bit AAC", 1, true)]
+    [InlineData("Show S01E05 1080p", 5, true)]
+    [InlineData("Show - 12 [1080p]", 12, true)]
+    // Jellyfin's "1-12" rule reads "001-366" in the release folder name as episode 366.
+    [InlineData("[DBD-Raws] Bleach 001 TV JAP 1080p BDRip HEVC 10bit AAC", 366, false)]
+    [InlineData("Show S01E05 1080p", 108, false)]
+    public void Detects_Whether_Number_Comes_From_File_Name(string name, int number, bool expected)
+        => Assert.Equal(expected, EpisodeNumberFallback.AppearsInFileName(name, number));
+
+    [Fact]
+    public void Missing_Number_Is_Filled()
+        => Assert.Equal(new EpisodeNumberFix(1, ReplacesWrongNumber: false), EpisodeNumberFallback.Plan(null, "Jujutsu Kaisen 01 [BDRemux]"));
+
+    [Fact]
+    public void Number_Taken_From_Folder_Is_Corrected()
+        => Assert.Equal(
+            new EpisodeNumberFix(1, ReplacesWrongNumber: true),
+            EpisodeNumberFallback.Plan(366, "[DBD-Raws] Bleach 001 TV JAP 1080p BDRip HEVC 10bit AAC"));
+
+    [Fact]
+    public void Number_Taken_From_Folder_Suffix_Is_Corrected()
+    {
+        // Folder "[Beatrice-Raws] Fate Stay Night - Unlimited Blade Works TV-1": Jellyfin numbers every episode 1.
+        Assert.Equal(
+            new EpisodeNumberFix(5, ReplacesWrongNumber: true),
+            EpisodeNumberFallback.Plan(1, "[Beatrice-Raws] Fate Stay Night - Unlimited Blade Works 05 [BDRip 1920x1080 HEVC TrueHD]"));
+    }
+
+    [Theory]
+    [InlineData(5, "Show S01E05 1080p")] // Jellyfin's own number is in the name: trust it
+    [InlineData(1, "Rick.and.Morty.S08E01.WEBDL.1080p.RGzsRutracker")]
+    [InlineData(1, "[Beatrice-Raws] Fate Stay Night - Unlimited Blade Works 00 [BDRip 1920x1080 HEVC TrueHD]")] // episode 0: no valid fix
+    [InlineData(12, "Show 12 [BDRemux]")] // already correct
+    [InlineData(366, "Some Show [BDRemux]")] // looks wrong, but nothing better to offer
+    [InlineData(null, "Some Show [BDRemux]")]
+    public void Leaves_Number_Alone(int? current, string name) => Assert.Null(EpisodeNumberFallback.Plan(current, name));
 
     [Fact]
     public void Enabled_By_Default() => Assert.True(new PluginConfiguration().FixEpisodeNumbers);

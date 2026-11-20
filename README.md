@@ -33,6 +33,11 @@ Out of the box Jellyfin only finds external tracks next to the video, turns ever
   assumes season 1 when there is no season folder (as Jellyfin itself does) and refreshes the
   episode from metadata providers. Episodes in a folder without a season number (e.g. `Specials [SP]`)
   are left unnumbered, because providers would mistake them for season 1.
+- **Corrects episode numbers taken from the folder name.** Jellyfin reads `001-366` in
+  `Bleach 001-366 TV` or `TV-1` in `Fate ... TV-1` as the episode number of *every* file inside.
+  When the number Jellyfin assigned does not occur in the file name, the plugin replaces it with the
+  one from the file name (`Bleach 001 TV JAP 1080p` → 1). A manual "Replace all metadata" refresh
+  brings Jellyfin's wrong number back; the next sync corrects it again.
 - **Never writes to your media folders** — releases stay intact for seeding, read-only mounts work.
   Only files it created are ever touched (tracked in `.anime-sidecars.json` per item).
 
