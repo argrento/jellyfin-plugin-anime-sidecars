@@ -8,6 +8,14 @@
     "category": "Metadata",
     "versions": [
       {
+        "version": "1.2.0.0",
+        "changelog": "See https://github.com/argrento/jellyfin-plugin-anime-sidecars/releases/tag/v1.2.0",
+        "targetAbi": "10.11.8.0",
+        "sourceUrl": "https://github.com/argrento/jellyfin-plugin-anime-sidecars/releases/download/v1.2.0/anime-sidecars_1.2.0.0.zip",
+        "checksum": "6d5d58cd98b189f0887907dffd7db470",
+        "timestamp": "2026-11-20T23:23:41Z"
+      },
+      {
         "version": "1.1.0.0",
         "changelog": "See https://github.com/argrento/jellyfin-plugin-anime-sidecars/releases/tag/v1.1.0",
         "targetAbi": "10.11.8.0",
