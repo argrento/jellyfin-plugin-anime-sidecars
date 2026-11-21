@@ -62,6 +62,23 @@ public class SidecarSyncService
     public Task<int> SyncSeriesAsync(Guid seriesId, CancellationToken cancellationToken)
         => SyncAsync(GetVideos(new[] { seriesId }), new Progress<double>(), cancellationToken);
 
+    /// <summary>Synchronizes the given videos that belong to selected libraries.</summary>
+    /// <param name="videoIds">Video item ids.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Number of changed items.</returns>
+    public Task<int> SyncVideosAsync(IReadOnlyCollection<Guid> videoIds, CancellationToken cancellationToken)
+    {
+        var libraryIds = Config.LibraryIds;
+        var videos = videoIds
+            .Select(id => _libraryManager.GetItemById(id))
+            .OfType<Video>()
+            .Where(v => v.VideoType == VideoType.VideoFile && !string.IsNullOrEmpty(v.Path))
+            .Where(v => libraryIds.Length == 0 || _libraryManager.GetCollectionFolders(v).Any(f => libraryIds.Contains(f.Id)))
+            .OrderBy(v => v.Path, StringComparer.Ordinal)
+            .ToList();
+        return videos.Count == 0 ? Task.FromResult(0) : SyncAsync(videos, new Progress<double>(), cancellationToken);
+    }
+
     /// <summary>Previews what would be linked for a series.</summary>
     /// <param name="seriesId">Series id.</param>
     /// <returns>Rows.</returns>

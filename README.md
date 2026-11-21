@@ -27,8 +27,10 @@ Out of the box Jellyfin only finds external tracks next to the video, turns ever
   - `forced` for "signs" folders (`надписи`, `signs`);
   - `default` for the first subtitle group from your priority list (audio is never made default).
 - **Hides service folders** (`Bonus`, `*Sub*`, `*Sound*`, `*Dub*`, `NC`, `Creditless*`, `Menu`,
-  `fonts`, `Scans`) so they stop appearing as seasons. Only folders that sit next to video files
-  are hidden, never folders directly in a library root.
+  `fonts`, `Scans`) so they stop appearing as seasons. A folder with any other name is hidden too when
+  it holds only tracks of the videos next to it (e.g. a subtitle folder named after the translator,
+  `RikuSempai/`) and no videos of its own. Only folders that sit next to video files are hidden,
+  never folders directly in a library root.
 - **Fills missing episode numbers** for names Jellyfin rejects (`Show 01 [Tag]`, `Show (01 сер.)`),
   assumes season 1 when there is no season folder (as Jellyfin itself does) and refreshes the
   episode from metadata providers. Episodes in a folder without a season number (e.g. `Specials [SP]`)
@@ -43,7 +45,8 @@ Out of the box Jellyfin only finds external tracks next to the video, turns ever
 - **Never writes to your media folders** — releases stay intact for seeding, read-only mounts work.
   Only files it created are ever touched (tracked in `.anime-sidecars.json` per item).
 
-Sync runs after every library scan and from *Dashboard → Scheduled Tasks → Anime Sidecars: sync*.
+Sync runs after every library scan, two minutes after Jellyfin's real-time monitoring adds new videos
+(e.g. a finished download), and from *Dashboard → Scheduled Tasks → Anime Sidecars: sync*.
 The settings page has a per-series preview and a "sync this series" button.
 
 ## Install

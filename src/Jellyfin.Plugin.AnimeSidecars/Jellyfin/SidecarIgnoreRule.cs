@@ -30,11 +30,6 @@ public class SidecarIgnoreRule : IResolverIgnoreRule
             return false;
         }
 
-        if (!FolderIgnoreMatcher.IsMatch(fileInfo.Name, config.IgnoreFolderPatterns))
-        {
-            return false;
-        }
-
         // Same root test as Jellyfin's CoreResolutionIgnoreRule: library locations are top parents.
         var parentIsLibraryRoot = parent is null or AggregateFolder or UserRootFolder or CollectionFolder || parent.IsTopParent;
         if (parentIsLibraryRoot)
@@ -42,11 +37,22 @@ public class SidecarIgnoreRule : IResolverIgnoreRule
             return false;
         }
 
+        var parentDir = Path.GetDirectoryName(fileInfo.FullName);
+        if (string.IsNullOrEmpty(parentDir) || !ParentHasVideo(parentDir))
+        {
+            return false;
+        }
+
         var inSelectedLibrary = config.LibraryIds.Length == 0
             || _libraryManager.GetCollectionFolders(parent!).Any(f => config.LibraryIds.Contains(f.Id));
-        var parentDir = Path.GetDirectoryName(fileInfo.FullName);
-        var parentHasVideo = !string.IsNullOrEmpty(parentDir) && ParentHasVideo(parentDir);
-        return FolderIgnoreMatcher.ShouldIgnoreDirectory(fileInfo.Name, parentIsLibraryRoot, inSelectedLibrary, parentHasVideo, config.IgnoreFolderPatterns);
+        if (!inSelectedLibrary)
+        {
+            return false;
+        }
+
+        var sidecarOnly = !FolderIgnoreMatcher.IsMatch(fileInfo.Name, config.IgnoreFolderPatterns)
+            && FolderIgnoreMatcher.IsSidecarOnlyFolder(fileInfo.FullName, new CachingFileLister());
+        return FolderIgnoreMatcher.ShouldIgnoreDirectory(fileInfo.Name, parentIsLibraryRoot, inSelectedLibrary, parentHasVideo: true, config.IgnoreFolderPatterns, sidecarOnly);
     }
 
     private static bool ParentHasVideo(string dir)

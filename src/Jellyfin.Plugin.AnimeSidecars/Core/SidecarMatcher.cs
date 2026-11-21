@@ -67,6 +67,16 @@ public static partial class SidecarMatcher
         }
     }
 
+    /// <summary>Whether a file name (without extension) belongs to a video: equal to its name, or its name + <c>.something</c>.</summary>
+    /// <param name="name">File name without extension.</param>
+    /// <param name="videoBaseName">Video file name without extension.</param>
+    /// <returns>True when the file is named after the video.</returns>
+    public static bool NameMatches(string name, string videoBaseName)
+        => name.Equals(videoBaseName, StringComparison.OrdinalIgnoreCase)
+            || (name.Length > videoBaseName.Length
+                && name.StartsWith(videoBaseName, StringComparison.OrdinalIgnoreCase)
+                && name[videoBaseName.Length] == '.');
+
     private static SidecarCandidate? TryMatch(string file, string baseName, IReadOnlyList<string> folders, SidecarRules rules)
     {
         var ext = Path.GetExtension(file).ToLowerInvariant();
@@ -84,12 +94,7 @@ public static partial class SidecarMatcher
             return null;
         }
 
-        var name = Path.GetFileNameWithoutExtension(file);
-        var matches = name.Equals(baseName, StringComparison.OrdinalIgnoreCase)
-            || (name.Length > baseName.Length
-                && name.StartsWith(baseName, StringComparison.OrdinalIgnoreCase)
-                && name[baseName.Length] == '.');
-        if (!matches)
+        if (!NameMatches(Path.GetFileNameWithoutExtension(file), baseName))
         {
             return null;
         }
